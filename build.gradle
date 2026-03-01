@@ -1,0 +1,175 @@
+apply plugin: "java"
+
+version = '1.0'
+
+sourceSets.main.java.srcDirs = ["src", "src/jcef-bridge"]
+
+repositories{
+    mavenCentral()
+    maven{ url = "https://raw.githubusercontent.com/Zelaux/MindustryRepo/master/repository" }
+    maven{ url = 'https://www.jitpack.io' }
+}
+
+java{
+    targetCompatibility = 8
+    sourceCompatibility = JavaVersion.VERSION_17
+}
+
+ext{
+    mindustryVersion = 'v154.2'
+    jabelVersion = "93fde537c7"
+    isWindows = System.getProperty("os.name").toLowerCase().contains("windows")
+    sdkRoot = System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT")
+}
+
+allprojects{
+    tasks.withType(JavaCompile).tap{
+        configureEach{
+            options.compilerArgs.addAll(['--release', '8'])
+            options.encoding = 'UTF-8'
+        }
+    }
+}
+
+dependencies{
+    implementation 'org.apache.commons:commons-compress:1.21'
+
+    implementation files('libs/jcef.jar')
+    implementation files('libs/jcef-natives-windows-amd64-jcef-2caef5a+cef-141.0.10+g1d65b0d+chromium-141.0.7390.123.jar')
+
+    compileOnly "com.github.Anuken.Arc:arc-core:$mindustryVersion"
+    compileOnly "com.github.Anuken.Mindustry:core:$mindustryVersion"
+
+    annotationProcessor "com.github.Anuken:jabel:$jabelVersion"
+}
+
+configurations.configureEach{
+    resolutionStrategy.eachDependency { details ->
+        if(details.requested.group == 'com.github.Anuken.Arc'){
+            details.useVersion "$mindustryVersion"
+        }
+    }
+}
+
+tasks.register('checkJCEF') {
+    description = 'Checks if JCEF natives JAR files are available in libs/'
+    group = 'setup'
+
+    doLast {
+        def libsDir = new File(projectDir, "libs")
+        if (!libsDir.exists()) {
+            throw new GradleException("libs/ directory not found. Place jcef.jar and jcef-natives-*.jar there.")
+        }
+        def nativesJars = libsDir.listFiles().findAll {
+            it.isFile() && it.name.startsWith("jcef-natives-") && it.name.endsWith(".jar")
+        }
+        def jcefJar = new File(libsDir, "jcef.jar")
+
+        if (!jcefJar.exists()) {
+            throw new GradleException("libs/jcef.jar not found.")
+        }
+        if (nativesJars.isEmpty()) {
+            throw new GradleException("No jcef-natives-*.jar found in libs/.")
+        }
+
+        println "JCEF OK: ${jcefJar.name}"
+        nativesJars.each { println "  natives: ${it.name}" }
+    }
+}
+
+tasks.register('jarAndroid'){
+    dependsOn "jar"
+
+    doLast{
+        if(!sdkRoot || !new File(sdkRoot).exists()) throw new GradleException("No valid Android SDK found. Ensure that ANDROID_HOME is set to your Android SDK directory.")
+
+        def platformRoot = new File("$sdkRoot/platforms/").listFiles().sort().reverse().find{ f -> new File(f, "android.jar").exists() }
+
+        if(!platformRoot) throw new GradleException("No android.jar found. Ensure that you have an Android platform installed.")
+
+        def dependencies = (configurations.compileClasspath.asList() + configurations.runtimeClasspath.asList() + [new File(platformRoot, "android.jar")]).collect{ "--classpath $it.path" }.join(" ")
+
+        def buildToolsDir = new File("$sdkRoot/build-tools/").listFiles()?.sort()?.reverse()?.find{ f -> new File(f, isWindows ? "d8.bat" : "d8").exists() }
+        def d8
+        if(buildToolsDir) {
+            d8 = new File(buildToolsDir, isWindows ? "d8.bat" : "d8").absolutePath
+        } else {
+            d8 = isWindows ? "d8.bat" : "d8"
+        }
+
+        "$d8 $dependencies --min-api 14 --output ${project.name}Android.jar ${project.name}Desktop.jar"
+                .execute(null, file("build/libs")).waitForProcessOutput(System.out, System.err)
+    }
+}
+
+jar.dependsOn checkJCEF
+
+jar{
+    archiveFileName = "${project.name}Desktop.jar"
+
+    from{
+        configurations.runtimeClasspath.collect{ it.isDirectory() ? it : zipTree(it) }
+    }
+
+    from(projectDir){
+        include "mod.hjson"
+    }
+
+    from("assets/"){
+        include "**"
+    }
+
+    // Bundle the natives JAR whole (nested JAR) so NativeLoader can extract from it at runtime
+    from(fileTree('libs')) {
+        include "jcef-natives-*.jar"
+        into ""
+    }
+
+    // Only java.* stubs get SecurityException — move them to desktop-stubs/ (loaded via Unsafe).
+    // javax.* stubs stay on the normal classpath (no restriction for javax.*).
+    exclude 'java/**'
+
+    from("$buildDir/classes/java/main/java") {
+        into 'desktop-stubs/java'
+    }
+
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', 'META-INF/MANIFEST.MF'
+
+    manifest {
+        attributes 'Main-Class': 'browser.BrowserMod'
+    }
+}
+
+tasks.register('jarServer', Jar){
+    dependsOn classes
+    archiveFileName = "${project.name}Server.jar"
+
+    from("$buildDir/classes/java/main") {
+        include 'browser/BrowserServerPlugin.class'
+        include 'browser/BrowserServerPlugin$*.class'
+    }
+
+    from(projectDir) {
+        include "server-mod.hjson"
+        rename 'server-mod.hjson', 'mod.hjson'
+    }
+
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', 'META-INF/MANIFEST.MF'
+}
+
+tasks.register('deploy', Jar){
+    dependsOn jarAndroid
+    dependsOn jar
+    archiveFileName = "${project.name}.jar"
+
+    from{ [zipTree("build/libs/${project.name}Desktop.jar"), zipTree("build/libs/${project.name}Android.jar")] }
+
+    doLast{
+        delete{
+            delete "build/libs/${project.name}Android.jar"
+        }
+    }
+}

@@ -1,0 +1,9 @@
+"name": "browser-windows-server",
+  "displayName": "Browser Windows Server",
+  "description": "Server relay for Browser Windows mod",
+  "author": "Ion - 7274",
+  "main": "browser.BrowserServerPlugin",
+  "version": "1.0",
+  "minGameVersion": "154",
+  "java": true,
+  "hidden": true
