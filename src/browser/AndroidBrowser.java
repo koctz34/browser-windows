@@ -26,13 +26,14 @@ public class AndroidBrowser {
             setLayerTypeM, webViewDestroyM, getSettingsM,
             setJsEnabledM, setDomStorageM, setWideViewPortM, setUserAgentM,
             setLoadWithOverviewM,
-            createBitmapM, copyPixelsBufM,
+            createBitmapM, copyPixelsBufM, setPixelM,
             motionObtainM, motionRecycleM, dispatchTouchM,
             makeMeasureSpecM, handlerPostM, handlerPostDelayedM,
             evaluateJsM, stopLoadingM, setInitialScaleM,
             goBackM, goForwardM;
     private static int LAYER_TYPE_SOFTWARE, EXACTLY;
     private static Object ARGB_8888;
+    private static boolean needSwapRB = true;
 
     private static final String DESKTOP_USER_AGENT =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -82,6 +83,7 @@ public class AndroidBrowser {
 
             createBitmapM = bitmapClass.getMethod("createBitmap", int.class, int.class, bitmapConfigClass);
             copyPixelsBufM = bitmapClass.getMethod("copyPixelsToBuffer", java.nio.Buffer.class);
+            setPixelM = bitmapClass.getMethod("setPixel", int.class, int.class, int.class);
             canvasCtor = canvasClass.getConstructor(bitmapClass);
 
             motionObtainM = motionEventClass.getMethod("obtain",
@@ -102,6 +104,20 @@ public class AndroidBrowser {
             LAYER_TYPE_SOFTWARE = viewClass.getField("LAYER_TYPE_SOFTWARE").getInt(null);
             EXACTLY = measureSpecClass.getField("EXACTLY").getInt(null);
             ARGB_8888 = bitmapConfigClass.getField("ARGB_8888").get(null);
+
+            try {
+                Object testBmp = createBitmapM.invoke(null, 1, 1, ARGB_8888);
+                setPixelM.invoke(testBmp, 0, 0, 0xFFFF0000); // pure red = ARGB 0xFFFF0000
+                ByteBuffer probe = ByteBuffer.allocateDirect(4);
+                copyPixelsBufM.invoke(testBmp, probe);
+                // If native order is BGRA: byte[0]=0x00(B), byte[2]=0xFF(R) -> need swap
+                // If native order is RGBA: byte[0]=0xFF(R) -> no swap needed
+                needSwapRB = ((probe.get(0) & 0xFF) == 0);
+                Log.info("[BW] Bitmap byte order: " + (needSwapRB ? "BGRA (swap R<->B)" : "RGBA (native)"));
+            } catch (Throwable t) {
+                Log.warn("[BW] Could not detect bitmap byte order, assuming BGRA");
+                needSwapRB = true;
+            }
 
             reflectionReady = true;
             Log.info("[BW] Android WebView reflection ready");
@@ -188,12 +204,13 @@ public class AndroidBrowser {
             copyPixelsBufM.invoke(bitmap, pixelBuffer);
             pixelBuffer.position(0);
 
-            // Android ARGB_8888 on little-endian = BGRA bytes, swap to RGBA for GL
-            for (int i = 0; i < size; i += 4) {
-                byte b0 = pixelBuffer.get(i);
-                byte b2 = pixelBuffer.get(i + 2);
-                pixelBuffer.put(i, b2);
-                pixelBuffer.put(i + 2, b0);
+            if (needSwapRB) {
+                for (int i = 0; i < size; i += 4) {
+                    byte b0 = pixelBuffer.get(i);
+                    byte b2 = pixelBuffer.get(i + 2);
+                    pixelBuffer.put(i, b2);
+                    pixelBuffer.put(i + 2, b0);
+                }
             }
             pixelBuffer.position(0);
             dirty = true;
