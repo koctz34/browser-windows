@@ -14,5 +14,6 @@ You need to download jcef-natives for your OS.
 Download jcef-native from [jcefmaven](https://github.com/jcefmaven/jcefmaven/releases).
 Choose the one that does not have `-javadoc` or `-sources` at the end.
 After installation, put the natives in the `libs` folder in the root of the project.
+In `build.gradle`, change the line `implementation files(‘libs/jcef-natives-windows-amd64-jcef-2caef5a+cef-141.0.10+g1d65b0d+chromium-141.0.7390.123.jar’)` if you have a different system.
 Make sure you have Java 25.
 Then compile the mod.
