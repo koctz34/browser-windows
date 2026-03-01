@@ -8,3 +8,11 @@ Although the mod supports Android devices, there is no guarantee that they will 
 The mod does not work on Linux and MacOS.
 
 If you wish, you can improve the mod.
+
+## How to compile the mod?
+You need to download jcef-natives for your OS.
+Download jcef-native from [jcefmaven](https://github.com/jcefmaven/jcefmaven/releases).
+Choose the one that does not have `-javadoc` or `-sources` at the end.
+After installation, put the natives in the `libs` folder in the root of the project.
+Make sure you have Java 25.
+Then compile the mod.
