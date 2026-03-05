@@ -931,6 +931,8 @@ public class BrowserMod extends Mod {
         return null;
     }
 
+    private static final String TUTORIAL_SEEN_KEY = "browsermod-tutorial-seen";
+
     public static void createBrowser(float x, float y) {
         if (!browserReady) {
             Vars.ui.showInfo("Browser backend is not initialized.");
@@ -946,6 +948,35 @@ public class BrowserMod extends Mod {
         WorldBrowser wb = new WorldBrowser(id, owner, false, x, y, 960, 540, null);
         browsers.add(wb);
 
+        boolean tutorialSeen = Core.settings.getBool(TUTORIAL_SEEN_KEY, false);
+        if (!tutorialSeen) {
+            showTutorialDialog(() -> showEnterUrlDialog(wb));
+        } else {
+            showEnterUrlDialog(wb);
+        }
+    }
+
+    private static void showTutorialDialog(Runnable onClose) {
+
+        new Dialog("Tutorial") {{
+            cont.add("A short tutorial to get familiar with the buttons in the image.")
+                .wrap().width(400).padBottom(12).left();
+            cont.row();
+            cont.image(Core.atlas.find("browser-windows-tutorial-image")).padBottom(12).row();
+            cont.add("Thanks for installing the mod!").wrap().width(400).padBottom(16).left();
+            cont.row();
+            TextButton gotItBtn = buttons.button("Got it", () -> {
+                Core.settings.put(TUTORIAL_SEEN_KEY, true);
+                Core.settings.forceSave();
+                hide();
+                onClose.run();
+            }).get();
+            gotItBtn.setDisabled(true);
+            Timer.schedule(() -> Core.app.post(() -> gotItBtn.setDisabled(false)), 5f);
+        }}.show();
+    }
+
+    private static void showEnterUrlDialog(WorldBrowser wb) {
         new Dialog("Enter URL") {{
             if (BrowserNet.isOnMultiplayerServer() && !BrowserNet.handshakeReceived) {
                 cont.add("[scarlet]Server does not have the sync plugin.\nOther players will not see your windows.[]")
@@ -1000,6 +1031,25 @@ class WorldBrowser {
     static final float NAME_H = 4f;
     static final float RESIZE_CORNER = 5f;
     static final float BTN_SIZE = HEADER_H * 0.7f;
+
+    private static TextureRegion backBtnTex, fwdBtnTex, menuBtnTex, kbBtnTex, kbBtnActiveTex, closeBtnTex;
+
+    private static void loadHeaderTextures() {
+        if (backBtnTex != null) return;
+        try {
+            var mod = Vars.mods.getMod(BrowserMod.class);
+            if (mod == null) return;
+            var root = mod.root.child("sprites");
+            backBtnTex = new TextureRegion(new Texture(root.child("arrow-left-btn.png")));
+            fwdBtnTex = new TextureRegion(new Texture(root.child("arrow-right-btn.png")));
+            menuBtnTex = new TextureRegion(new Texture(root.child("menu-btn.png")));
+            kbBtnTex = new TextureRegion(new Texture(root.child("keyboard-btn.png")));
+            kbBtnActiveTex = new TextureRegion(new Texture(root.child("keyboard-btn-active.png")));
+            closeBtnTex = new TextureRegion(new Texture(root.child("close-btn.png")));
+        } catch (Throwable t) {
+            Log.err("BrowserMod: Failed to load header button textures", t);
+        }
+    }
     static final int MIN_PX = 320;
     static final int MAX_PX_W = 1920, MAX_PX_H = 1200;
 
@@ -1113,52 +1163,67 @@ class WorldBrowser {
 
         float headerY = y + worldH / 2 - HEADER_H / 2;
         float btnR = HEADER_H * 0.35f;
+        float btnW = btnR * 2;
         float btnStep = btnR * 2 + 1;
         float nextX = x - worldW / 2 + btnR + 1;
 
-        // Back button
-        float backBtnX = nextX;
-        Draw.color(Color.valueOf("6677aa"));
-        Fill.circle(backBtnX, headerY, btnR);
-        Draw.color(Color.white);
-        Lines.stroke(0.25f);
-        float ar = btnR * 0.45f;
-        Lines.line(backBtnX + ar * 0.3f, headerY + ar, backBtnX - ar * 0.5f, headerY);
-        Lines.line(backBtnX - ar * 0.5f, headerY, backBtnX + ar * 0.3f, headerY - ar);
-        nextX += btnStep;
+        loadHeaderTextures();
 
-        // Forward button
-        float fwdBtnX = nextX;
-        Draw.color(Color.valueOf("6677aa"));
-        Fill.circle(fwdBtnX, headerY, btnR);
-        Draw.color(Color.white);
-        Lines.stroke(0.25f);
-        Lines.line(fwdBtnX - ar * 0.3f, headerY + ar, fwdBtnX + ar * 0.5f, headerY);
-        Lines.line(fwdBtnX + ar * 0.5f, headerY, fwdBtnX - ar * 0.3f, headerY - ar);
-        nextX += btnStep;
-
-        // Menu button
-        float menuBtnX = nextX;
-        Draw.color(Color.valueOf("5588cc"));
-        Fill.circle(menuBtnX, headerY, btnR);
-        Draw.color(Color.white);
-        Lines.stroke(0.25f);
-        float barH = btnR * 0.3f;
-        for (int bi = -1; bi <= 1; bi++) {
-            float by = headerY + bi * barH * 1.2f;
-            Lines.line(menuBtnX - btnR * 0.5f, by, menuBtnX + btnR * 0.5f, by);
+        if (backBtnTex != null) {
+            Draw.color(Color.white);
+            Draw.rect(backBtnTex, nextX, headerY, btnW, btnW);
+        } else {
+            Draw.color(Color.valueOf("6677aa"));
+            Fill.circle(nextX, headerY, btnR);
+            Draw.color(Color.white);
+            Lines.stroke(0.25f);
+            float ar = btnR * 0.45f;
+            Lines.line(nextX + ar * 0.3f, headerY + ar, nextX - ar * 0.5f, headerY);
+            Lines.line(nextX - ar * 0.5f, headerY, nextX + ar * 0.3f, headerY - ar);
         }
         nextX += btnStep;
 
-        // Keyboard button
-        float kbBtnX = nextX;
+        if (fwdBtnTex != null) {
+            Draw.color(Color.white);
+            Draw.rect(fwdBtnTex, nextX, headerY, btnW, btnW);
+        } else {
+            Draw.color(Color.valueOf("6677aa"));
+            Fill.circle(nextX, headerY, btnR);
+            Draw.color(Color.white);
+            Lines.stroke(0.25f);
+            float ar = btnR * 0.45f;
+            Lines.line(nextX - ar * 0.3f, headerY + ar, nextX + ar * 0.5f, headerY);
+            Lines.line(nextX + ar * 0.5f, headerY, nextX - ar * 0.3f, headerY - ar);
+        }
+        nextX += btnStep;
+
+        if (menuBtnTex != null) {
+            Draw.color(Color.white);
+            Draw.rect(menuBtnTex, nextX, headerY, btnW, btnW);
+        } else {
+            Draw.color(Color.valueOf("5588cc"));
+            Fill.circle(nextX, headerY, btnR);
+            Draw.color(Color.white);
+            Lines.stroke(0.25f);
+            float barH = btnR * 0.3f;
+            for (int bi = -1; bi <= 1; bi++) {
+                float by = headerY + bi * barH * 1.2f;
+                Lines.line(nextX - btnR * 0.5f, by, nextX + btnR * 0.5f, by);
+            }
+        }
+        nextX += btnStep;
+
         boolean kbActive = BrowserMod.keyboardTarget == this;
-        Draw.color(kbActive ? Color.yellow : Color.valueOf("55aa55"));
-        Fill.circle(kbBtnX, headerY, btnR);
-        Draw.color(Color.white);
-        Fonts.def.getData().setScale(btnR * 0.6f / Fonts.def.getLineHeight());
-        Fonts.def.draw("KB", kbBtnX, headerY + btnR * 0.35f, Align.center);
-        Fonts.def.getData().setScale(1f);
+        TextureRegion kbTex = kbActive ? kbBtnActiveTex : kbBtnTex;
+        if (kbTex != null) {
+            Draw.color(Color.white);
+            Draw.rect(kbTex, nextX, headerY, btnW, btnW);
+        } else {
+            Draw.color(kbActive ? Color.yellow : Color.valueOf("55aa55"));
+            Fill.circle(nextX, headerY, btnR);
+        }
+        float kbBtnX = nextX;
+        nextX += btnStep;
 
         // URL text
         Draw.color(Color.white);
@@ -1166,28 +1231,39 @@ class WorldBrowser {
                 (currentURL.length() > 40 ? currentURL.substring(0, 37) + "..." : currentURL);
         float fontSize = HEADER_H / Fonts.def.getLineHeight();
         float urlStartX = kbBtnX + btnR + 2;
-        Fonts.def.getData().setScale(fontSize * 0.6f);
-        Fonts.def.draw(disp, urlStartX, y + worldH / 2 - HEADER_H * 0.25f, Align.left);
-        Fonts.def.getData().setScale(1f);
+        float urlY = y + worldH / 2 - HEADER_H * 0.25f;
+        try {
+            Fonts.def.getData().setScale(fontSize * 0.6f);
+            Fonts.def.draw(disp, urlStartX, urlY, Align.left);
+        } finally {
+            Fonts.def.getData().setScale(1f);
+        }
 
-        // Close button (right side, only for owner)
         if (!remote) {
             float cx = x + worldW / 2 - btnR - 1;
-            Draw.color(Color.red);
-            Fill.circle(cx, headerY, btnR);
-            Draw.color(Color.white);
-            Lines.stroke(0.3f);
-            float d = btnR * 0.55f;
-            Lines.line(cx - d, headerY - d, cx + d, headerY + d);
-            Lines.line(cx + d, headerY - d, cx - d, headerY + d);
+            if (closeBtnTex != null) {
+                Draw.color(Color.white);
+                Draw.rect(closeBtnTex, cx, headerY, btnW, btnW);
+            } else {
+                Draw.color(Color.red);
+                Fill.circle(cx, headerY, btnR);
+                Draw.color(Color.white);
+                Lines.stroke(0.3f);
+                float d = btnR * 0.55f;
+                Lines.line(cx - d, headerY - d, cx + d, headerY + d);
+                Lines.line(cx + d, headerY - d, cx - d, headerY + d);
+            }
         }
 
         if (ownerName != null && BrowserNet.multiplayerActive) {
             Draw.color(Color.white);
             float nameScale = NAME_H / Fonts.def.getLineHeight();
-            Fonts.def.getData().setScale(nameScale * 0.7f);
-            Fonts.def.draw(ownerName, x, y + worldH / 2 + NAME_H * 0.8f, Align.center);
-            Fonts.def.getData().setScale(1f);
+            try {
+                Fonts.def.getData().setScale(nameScale * 0.7f);
+                Fonts.def.draw(ownerName, x, y + worldH / 2 + NAME_H * 0.8f, Align.center);
+            } finally {
+                Fonts.def.getData().setScale(1f);
+            }
         }
 
         Draw.color();
